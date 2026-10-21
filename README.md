@@ -32,24 +32,52 @@ start before offset 0x2f. Rosetta's loader additionally asserts
 satisfy by declaring a 120-byte segment; Linux zero-fills past end of file
 within the page.
 
+## Image size
+
+The binary is about 5% of the image. Tar pads it to one 512-byte block, so
+75, 80 and 103 bytes produce the same layer; what differs is the metadata
+`docker build` adds (history, timestamps, Env, WorkingDir). `mkimage.py`
+emits only what the OCI image spec requires: a config with architecture,
+os, rootfs and Cmd, a two-descriptor manifest, and one gzip layer.
+
+| true-103 built via            | layer | config | manifest | total |
+|-------------------------------|------:|-------:|---------:|------:|
+| Dockerfile (`docker buildx`)  |   148 |    748 |      476 |  1372 |
+| `mkimage.py`                  |   123 |    178 |      401 |   702 |
+| `mkimage.py --truncate-tar`   |   113 |    178 |      401 |   692 |
+
+Sizes are registry bytes (compressed layer + config + manifest). The truncated
+tar drops the padding and end-of-archive blocks; Go's tar reader tolerates it,
+the spec does not promise it. Larger than any of this: `docker buildx build
+--push` attaches a provenance attestation by default, adding an index, an
+attestation manifest and an in-toto statement of several KB. Use
+`--provenance=false --sbom=false` if size is the point.
+
 ## Usage
 
 ```sh
 python3 mktrue.py                 # writes out/true-*
 ./test.sh native                  # on an x86-64 Linux host
 ./test.sh docker                  # builds FROM scratch images and runs them
+./test.sh oci                     # hand-builds minimal OCI images, loads and runs them
+./compare-sizes.sh true-103       # the table above, measured (creates a docker-container builder if needed)
 docker build --build-arg BIN=true-103 -t true .
 docker run --rm true; echo $?     # 0
+python3 mkimage.py out/true-103 true.oci.tar && docker load -i true.oci.tar   # -> true:min
 ```
 
-CI runs both test modes on an x86-64 `ubuntu-latest` runner on every push.
+CI runs all three test modes and the size comparison on an x86-64
+`ubuntu-latest` runner on every push.
 
 ## Caveats
 
 - `readelf`/`objdump` complain about every variant; the kernel does not.
 - `true-75` maps about 4 GiB of address space because `e_phnum` and
   `e_phentsize` sit inside `p_memsz`; it segfaults under a 2 GB `ulimit -v`.
-- Image size barely changes: tar pads each entry to 512-byte blocks.
+- `docker load` differs by image store: the containerd store reads the OCI
+  `index.json` and needs a fully qualified `ref.name` (`docker.io/library/true:min`,
+  a bare `true:min` loads untagged); the classic store ignores `index.json` and
+  needs a docker-archive `manifest.json`. `mkimage.py` writes both.
 
 ## References
 
