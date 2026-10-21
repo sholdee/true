@@ -1,0 +1,31 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  native-x86_64:
+    name: native x86-64 kernel + docker (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Host
+        run: |
+          uname -mr
+          cat /proc/sys/vm/overcommit_memory
+          docker version --format 'docker {{.Server.Version}} {{.Server.Os}}/{{.Server.Arch}}'
+      - name: Generate binaries
+        run: python3 mktrue.py
+      - name: Run natively on the runner kernel
+        run: ./test.sh native | tee native.txt
+      - name: Run as FROM-scratch images
+        run: ./test.sh docker | tee docker.txt
+      - name: Header view (informational)
+        run: for f in out/true-*; do echo "== $f"; readelf -h -l "$f" 2>&1 | grep -E 'Warning|Entry|LOAD|Type|readelf' || true; done
+      - name: Summary
+        if: always()
+        run: |
+          { echo "### native ($(uname -mr))"; echo '```'; cat native.txt; echo '```'
+            echo "### docker run (FROM scratch)"; echo '```'; cat docker.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
