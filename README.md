@@ -22,6 +22,31 @@ docstring in [`mktrue.py`](mktrue.py) for the field-by-field layouts.
 Each size also has a `-exit7` control (same layout, exits 7) so CI proves the
 exit status comes from the embedded code rather than from a loader shortcut.
 
+## pause: an image that never exits
+
+Changing the syscall number from 60 (`exit`) to 34 (`pause`) turns every
+layout into a `sleep infinity` equivalent at the same size: the process blocks
+forever at zero CPU. `pause-103`, `pause-80` and `pause-75` are that one-byte
+change. The catch is PID 1 semantics: the kernel does not deliver SIGTERM to
+a PID namespace's init unless it has installed a handler, so `docker stop`
+waits out the grace period and SIGKILLs (exit 137), exactly as `sleep
+infinity` does today. `docker run --init` fixes that at the runtime level.
+
+`pause-128-sigterm` fixes it in the binary: 25 bytes of code install a
+SIGTERM handler that exits 0, so `docker stop` returns immediately. The
+32-byte `struct sigaction` costs nothing extra: it is overlaid on `p_filesz`
+(the handler address), `p_memsz` (`SA_RESTORER`), `p_align` (the never-used
+restorer) and the first eight code bytes (the signal mask).
+
+| binary | bytes | `docker stop -t 5` | `docker kill` |
+|---|---:|---|---|
+| `pause-103` | 103 | after 5 s, exit 137 | exit 137 |
+| `pause-103` with `--init` | 103 | immediate, exit 143 | |
+| `pause-128-sigterm` | 128 | immediate, exit 0 | |
+
+Neither reaps orphaned children, which the Kubernetes `pause` image does as
+the init of a shared PID namespace.
+
 ## Why 103 on Docker Desktop
 
 On an Apple Silicon host, Docker Desktop hands amd64 binaries to Rosetta via
@@ -60,13 +85,14 @@ python3 mktrue.py                 # writes out/true-*
 ./test.sh native                  # on an x86-64 Linux host
 ./test.sh docker                  # builds FROM scratch images and runs them
 ./test.sh oci                     # hand-builds minimal OCI images, loads and runs them
+./test.sh pause                   # pause-*: alive after 3 s, state S, stop behaviour
 ./compare-sizes.sh true-103       # the table above, measured (creates a docker-container builder if needed)
 docker build --build-arg BIN=true-103 -t true .
 docker run --rm true; echo $?     # 0
 python3 mkimage.py out/true-103 true.oci.tar && docker load -i true.oci.tar   # -> true:min
 ```
 
-CI runs all three test modes and the size comparison on an x86-64
+CI runs all four test modes and the size comparison on an x86-64
 `ubuntu-latest` runner on every push.
 
 ## Caveats
