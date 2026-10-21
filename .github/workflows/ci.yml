@@ -22,10 +22,16 @@ jobs:
         run: ./test.sh native | tee native.txt
       - name: Run as FROM-scratch images
         run: ./test.sh docker | tee docker.txt
+      - name: Run as hand-built minimal OCI images
+        run: ./test.sh oci | tee oci.txt
+      - name: Image size comparison
+        run: ./compare-sizes.sh true-103 | tee sizes.txt
       - name: Header view (informational)
         run: for f in out/true-*; do echo "== $f"; readelf -h -l "$f" 2>&1 | grep -E 'Warning|Entry|LOAD|Type|readelf' || true; done
       - name: Summary
         if: always()
         run: |
           { echo "### native ($(uname -mr))"; echo '```'; cat native.txt; echo '```'
-            echo "### docker run (FROM scratch)"; echo '```'; cat docker.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo "### docker run (FROM scratch)"; echo '```'; cat docker.txt; echo '```'
+            echo "### docker run (minimal OCI image from mkimage.py)"; echo '```'; cat oci.txt; echo '```'
+            echo "### registry bytes, true-103"; echo '```'; cat sizes.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
