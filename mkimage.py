@@ -3,7 +3,9 @@
 
 The image is just what the OCI image spec requires: a config with architecture,
 os, rootfs and Cmd; a manifest with two descriptors; one gzip layer holding the
-binary. No history, timestamps, Env, WorkingDir or attestations. For a 103-byte
+binary. No history, timestamps, Env, WorkingDir or attestations. The output tar
+carries both an OCI index.json and a docker-archive manifest.json over the same
+blobs, so `docker load` works with the classic and the containerd image store. For a 103-byte
 binary that is about 700 bytes of registry content versus ~1.4 KB from
 `docker build` (and several KB more if buildx attaches provenance on push).
 
@@ -60,7 +62,12 @@ def build(data, *, path="/true", arch="amd64", ref="docker.io/library/true:min",
     return blobs, index, len(raw)
 
 
-def write_layout(out, blobs, index):
+def write_layout(out, blobs, index, ref):
+    """OCI layout plus a docker-archive manifest.json pointing at the same blobs, so both
+    Docker image stores can `docker load` it (the classic store ignores index.json)."""
+    blob_path = lambda b: "blobs/sha256/" + sha(b)[7:]
+    docker_manifest = compact([{"Config": blob_path(blobs["config"]), "RepoTags": [ref],
+                                "Layers": [blob_path(blobs["layer"])]}])
     with tarfile.open(out, "w") as t:
         def add(name, b):
             ti = tarfile.TarInfo(name)
@@ -68,8 +75,9 @@ def write_layout(out, blobs, index):
             t.addfile(ti, io.BytesIO(b))
         add("oci-layout", b'{"imageLayoutVersion":"1.0.0"}')
         add("index.json", index)
+        add("manifest.json", docker_manifest)
         for b in blobs.values():
-            add("blobs/sha256/" + sha(b)[7:], b)
+            add(blob_path(b), b)
 
 
 if __name__ == "__main__":
@@ -81,7 +89,7 @@ if __name__ == "__main__":
     a = ap.parse_args()
     data = open(a.binary, "rb").read()
     blobs, index, rawlen = build(data, path=a.path, arch=a.arch, ref=a.ref, truncate=a.truncate_tar)
-    write_layout(a.out, blobs, index)
+    write_layout(a.out, blobs, index, a.ref)
     sizes = {k: len(v) for k, v in blobs.items()}
     print(f"binary={len(data)} raw-tar={rawlen} layer={sizes['layer']} config={sizes['config']} "
           f"manifest={sizes['manifest']} registry-bytes={sum(sizes.values())}")

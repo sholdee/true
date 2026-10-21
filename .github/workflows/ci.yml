@@ -9,6 +9,9 @@ jobs:
   native-x86_64:
     name: native x86-64 kernel + docker (ubuntu-latest)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash          # -eo pipefail, so `| tee` cannot mask a failing test
     steps:
       - uses: actions/checkout@v5
       - name: Host

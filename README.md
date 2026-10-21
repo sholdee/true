@@ -74,8 +74,10 @@ CI runs all three test modes and the size comparison on an x86-64
 - `readelf`/`objdump` complain about every variant; the kernel does not.
 - `true-75` maps about 4 GiB of address space because `e_phnum` and
   `e_phentsize` sit inside `p_memsz`; it segfaults under a 2 GB `ulimit -v`.
-- `docker load` of an OCI layout needs a fully qualified `ref.name`
-  annotation (`docker.io/library/true:min`); a bare `true:min` loads untagged.
+- `docker load` differs by image store: the containerd store reads the OCI
+  `index.json` and needs a fully qualified `ref.name` (`docker.io/library/true:min`,
+  a bare `true:min` loads untagged); the classic store ignores `index.json` and
+  needs a docker-archive `manifest.json`. `mkimage.py` writes both.
 
 ## References
 
