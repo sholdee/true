@@ -60,7 +60,7 @@ python3 mktrue.py                 # writes out/true-*
 ./test.sh native                  # on an x86-64 Linux host
 ./test.sh docker                  # builds FROM scratch images and runs them
 ./test.sh oci                     # hand-builds minimal OCI images, loads and runs them
-./compare-sizes.sh true-103       # the table above, measured
+./compare-sizes.sh true-103       # the table above, measured (creates a docker-container builder if needed)
 docker build --build-arg BIN=true-103 -t true .
 docker run --rm true; echo $?     # 0
 python3 mkimage.py out/true-103 true.oci.tar && docker load -i true.oci.tar   # -> true:min
