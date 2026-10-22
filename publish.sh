@@ -5,7 +5,8 @@
 # Log in first (skopeo login + docker login). A localhost registry is pushed over plain HTTP.
 # Tags are the binary name without its `true-` prefix (true-103 -> :103, pause-103 -> :pause-103);
 # :latest and :pause point at the 103-byte variants, the smallest that also run under Rosetta.
-# Pushing again is a no-op: mkimage.py is deterministic, so every digest is stable.
+# Pushing again from the same machine is a no-op: mkimage.py is deterministic for a given Python/zlib
+# build (the gzip bytes, hence the digests, differ between e.g. macOS and Ubuntu at equal sizes).
 set -euo pipefail
 cd "$(dirname "$0")"
 repo=${1:?usage: publish.sh REGISTRY/REPO}

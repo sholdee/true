@@ -27,7 +27,9 @@ exit status comes from the embedded code rather than from a loader shortcut.
 CI pushes the `mkimage.py` images to GHCR on every merge to `main`: skopeo
 copies the OCI layout as is, and the job pulls each tag back, runs it and
 checks that the registry's manifest digest equals the local build's. All
-images are `linux/amd64`.
+images are `linux/amd64`. Re-running is a no-op at the registry: the build is
+deterministic for a given Python/zlib build (gzip bytes differ across
+platforms at equal sizes, so a laptop build has different digests).
 
 ```sh
 docker run --rm ghcr.io/sholdee/true; echo $?      # 0; 103-byte binary, 702 registry bytes
