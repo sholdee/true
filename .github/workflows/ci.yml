@@ -27,6 +27,8 @@ jobs:
         run: ./test.sh docker | tee docker.txt
       - name: Run as hand-built minimal OCI images
         run: ./test.sh oci | tee oci.txt
+      - name: Run pause variants (alive, idle, stop behaviour)
+        run: ./test.sh pause | tee pause.txt
       - name: Image size comparison
         run: ./compare-sizes.sh true-103 | tee sizes.txt
       - name: Header view (informational)
@@ -37,4 +39,5 @@ jobs:
           { echo "### native ($(uname -mr))"; echo '```'; cat native.txt; echo '```'
             echo "### docker run (FROM scratch)"; echo '```'; cat docker.txt; echo '```'
             echo "### docker run (minimal OCI image from mkimage.py)"; echo '```'; cat oci.txt; echo '```'
+            echo "### pause variants"; echo '```'; cat pause.txt; echo '```'
             echo "### registry bytes, true-103"; echo '```'; cat sizes.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

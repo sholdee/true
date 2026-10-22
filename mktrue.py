@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Generate the smallest x86-64 Linux ELF executables that behave like /bin/true.
+"""Generate the smallest x86-64 Linux ELF executables that behave like /bin/true,
+or like `sleep infinity` (the pause-* variants).
 
 A static ELF64 needs a 64-byte ELF header and one 56-byte program header. The
 code (`mov al,60 ; syscall`, 4 bytes, relying on rax=rdi=0 at process entry) is
@@ -25,6 +26,16 @@ Layouts, by program-header offset (phoff):
                         entry) and lands on the code at 0x47. e_phnum/e_phentsize
                         sit inside p_memsz, which forces a ~4 GiB segment.
 
+pause-*   the same layouts with syscall 34 (pause) instead of 60 (exit): the
+          process blocks forever at zero CPU. As PID 1 it receives no SIGTERM
+          without a handler, so `docker stop` waits out the grace period and
+          SIGKILLs (exit 137), exactly like `sleep infinity`; `--init` fixes it.
+pause-128-sigterm  0x2f layout plus rt_sigaction(SIGTERM) and a handler that
+          exits 0, so `docker stop` returns at once. The 32-byte struct
+          sigaction is overlaid on p_filesz (handler address), p_memsz
+          (SA_RESTORER), p_align (restorer, never used) and the first 8 code
+          bytes (signal mask), so it costs nothing beyond the 25 code bytes.
+
 true-103/104/112 keep file bytes 4..19 canonical, which the binfmt_misc
 magic/mask used by Docker Desktop (Rosetta) and qemu-user requires, and declare
 p_filesz = p_memsz = 120 because Rosetta's loader asserts the first segment
@@ -40,6 +51,8 @@ import sys
 BASE = 0x400000
 EXIT0 = bytes.fromhex("b03c0f05")        # mov al,60 ; syscall
 EXIT7 = bytes.fromhex("b03c40b7070f05")  # mov al,60 ; mov dil,7 ; syscall  (control)
+PAUSE = bytes.fromhex("b0220f05")        # mov al,34 ; syscall              pause(), blocks forever
+SA_RESTORER = 0x04000000
 ROSETTA_MIN_SEG = 64 + 56                # Rosetta: segment_file_size >= ehdr + phdrs
 
 
@@ -111,12 +124,35 @@ def true_75(code=EXIT0):
     return img
 
 
+def pause_sigterm():
+    """pause() with a SIGTERM handler that exits 0; 0x2f layout; 128 bytes."""
+    code_off = 0x67                                     # right after the program header
+    code = bytes.fromhex(
+        "b00d"        # mov al,13          rt_sigaction
+        "40b70f"      # mov dil,15         SIGTERM
+        "be4f004000"  # mov esi,0x40004f   &act = p_filesz field (file offset 0x4f)
+        "41b208"      # mov r10b,8         sigsetsize
+        "0f05"        # syscall            (rax = 0 on success)
+        "b022" "0f05"  # mov al,34 ; syscall   pause(); never returns while the handler exits
+        "b03c" "31ff" "0f05")  # handler: mov al,60 ; xor edi,edi ; syscall   exit(0)
+    handler = BASE + code_off + code.index(bytes.fromhex("b03c31ff0f05"))
+    h = ehdr(BASE + code_off, 0x2f, shoff=1 << 56, flags=0x05000000, ehsize=0)
+    p = phdr(flags=5 | 0x38 << 24, off=0x100, vaddr=BASE + 0x100, paddr=0,
+             filesz=handler, memsz=SA_RESTORER, align=0x1000)   # = sa_handler, sa_flags, sa_restorer
+    img = overlay(h, p, 0x2f) + code                             # code[0:8] doubles as sa_mask
+    assert len(img) == 128 and img[0x4f:0x57] == handler.to_bytes(8, "little")
+    return img
+
+
 VARIANTS = {
     "true-112": true_112(EXIT0), "true-112-exit7": true_112(EXIT7),
     "true-104": true_104(EXIT0), "true-104-exit7": true_104(EXIT7),
     "true-103": true_103(EXIT0), "true-103-exit7": true_103(EXIT7),
     "true-80":  true_80(EXIT0),  "true-80-exit7":  true_80(EXIT7),
     "true-75":  true_75(),
+    "pause-112": true_112(PAUSE), "pause-104": true_104(PAUSE), "pause-103": true_103(PAUSE),
+    "pause-80":  true_80(PAUSE),  "pause-75":  true_75(PAUSE),
+    "pause-128-sigterm": pause_sigterm(),
 }
 
 if __name__ == "__main__":
