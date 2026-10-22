@@ -76,6 +76,9 @@ def write_layout(out, blobs, index, ref):
         add("oci-layout", b'{"imageLayoutVersion":"1.0.0"}')
         add("index.json", index)
         add("manifest.json", docker_manifest)
+        for d in ("blobs", "blobs/sha256"):     # explicit dirs: older skopeo chowns implicit ones to root
+            ti = tarfile.TarInfo(d); ti.type, ti.mode, ti.mtime = tarfile.DIRTYPE, 0o755, 0
+            t.addfile(ti)
         for b in blobs.values():
             add(blob_path(b), b)
 
