@@ -48,7 +48,7 @@ jobs:
             echo "### registry bytes, true-103"; echo '```'; cat sizes.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   publish-ghcr:
-    name: publish the minimal OCI images to ghcr.io
+    name: publish true and pause to ghcr.io
     needs: native-x86_64
     if: github.event_name == 'push' || inputs.publish == true
     runs-on: ubuntu-latest
@@ -69,9 +69,9 @@ jobs:
         run: |
           skopeo login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<<"$GITHUB_TOKEN"
           docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<<"$GITHUB_TOKEN"
-      - name: Push every image, then pull each tag back and run it
-        run: ./publish.sh "ghcr.io/${GITHUB_REPOSITORY,,}" | tee publish.txt
+      - name: Push true and pause, then pull each tag back and run it
+        run: ./publish.sh "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" | tee publish.txt
       - name: Summary
         if: always()
         run: |
-          { echo "### ghcr.io/${GITHUB_REPOSITORY,,} ($(uname -mr))"; echo '```'; cat publish.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/{true,pause} ($(uname -mr))"; echo '```'; cat publish.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

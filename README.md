@@ -24,30 +24,40 @@ exit status comes from the embedded code rather than from a loader shortcut.
 
 ## Published images
 
-CI pushes the `mkimage.py` images to GHCR on every merge to `main`: skopeo
-copies the OCI layout as is, and the job pulls each tag back, runs it and
-checks that the registry's manifest digest equals the local build's. All
-images are `linux/amd64`. Re-running is a no-op at the registry: the build is
-deterministic for a given Python/zlib build (gzip bytes differ across
-platforms at equal sizes, so a laptop build has different digests).
+CI publishes two images to GHCR on every merge to `main`, `true` and `pause`,
+each with the same three tags. The tag says where the image runs; the byte
+count is in the table, not the tag, because `true:103` reads as a version.
 
 ```sh
-docker run --rm ghcr.io/sholdee/true; echo $?      # 0; 103-byte binary, 702 registry bytes
-docker run -d ghcr.io/sholdee/true:pause           # blocks forever at zero CPU
+docker run --rm ghcr.io/sholdee/true; echo $?      # 0
+docker run -d ghcr.io/sholdee/pause                # blocks forever; docker stop returns at once
 ```
 
-| tag                  | binary              | notes |
-|----------------------|---------------------|-------|
-| `latest`, `103`      | `true-103`          | runs everywhere, including Docker Desktop on Apple Silicon |
-| `104`, `112`         | `true-104/112`      | |
-| `80`, `75`           | `true-80/75`        | native x86-64 hosts only |
-| `pause`, `pause-103` | `pause-103`         | `docker stop` waits out the grace period, exit 137 |
-| `pause-104`, `pause-112`, `pause-80`, `pause-75` | `pause-*` | same rule as the `true` sizes |
-| `pause-128-sigterm`  | `pause-128-sigterm` | `docker stop` returns at once, exit 0 |
+| image   | tag      | binary              | bytes | registry bytes | Rosetta / binfmt_misc | `docker stop` |
+|---------|----------|---------------------|------:|---------------:|:---------------------:|---------------|
+| `true`  | `latest` | `true-103`          |   103 |            702 | ✅ | |
+| `true`  | `native` | `true-80`           |    80 |            690 | ❌ | |
+| `true`  | `min`    | `true-75`           |    75 |            689 | ❌, maps ~4 GiB | |
+| `pause` | `latest` | `pause-128-sigterm` |   128 |            721 | ✅ | immediate, exit 0 |
+| `pause` | `native` | `pause-80`          |    80 |            690 | ❌ | after the grace period, exit 137 |
+| `pause` | `min`    | `pause-75`          |    75 |            689 | ❌, maps ~4 GiB | after the grace period, exit 137 |
 
-`./publish.sh REGISTRY/REPO` pushes the same set to any registry you are
-logged in to (skopeo and docker), so a fork publishes to its own namespace
-unchanged.
+`latest` runs everywhere a `linux/amd64` image can, including Docker Desktop
+on Apple Silicon; `native` needs a real x86-64 Linux kernel; `min` is the
+floor, with the address-space caveat below. `pause:latest` is the handler
+variant on purpose: a handler-less PID 1 makes every `docker compose down`
+and pod deletion wait out the grace period, and that costs 19 registry bytes
+to fix. The 104, 112 and handler-less 103 variants stay in the repo and CI as
+ladder steps but are not published. Pin by digest if a smaller layout moving
+`min` would matter to you.
+
+Publishing is skopeo copying the OCI layout as is; the job then pulls each tag
+back, runs it and checks that the registry's manifest digest equals the local
+build's. Re-running is a no-op at the registry: the build is deterministic for
+a given Python/zlib build (gzip bytes differ across platforms at equal sizes,
+so a laptop build has different digests). `./publish.sh REGISTRY/NAMESPACE`
+pushes the same two images to any registry you are logged in to (skopeo and
+docker), so a fork publishes to its own namespace unchanged.
 
 ## pause: an image that never exits
 
@@ -114,7 +124,7 @@ python3 mktrue.py                 # writes out/true-*
 ./test.sh oci                     # hand-builds minimal OCI images, loads and runs them
 ./test.sh pause                   # pause-*: alive after 3 s, state S, stop behaviour
 ./compare-sizes.sh true-103       # the table above, measured (creates a docker-container builder if needed)
-./publish.sh localhost:5000/true  # mkimage.py every variant, push with skopeo, pull back and run
+./publish.sh localhost:5000       # true and pause via mkimage.py, pushed with skopeo, pulled back and run
 docker build --build-arg BIN=true-103 -t true .
 docker run --rm true; echo $?     # 0
 python3 mkimage.py out/true-103 true.oci.tar && docker load -i true.oci.tar   # -> true:min
