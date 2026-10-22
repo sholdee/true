@@ -4,6 +4,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: also publish the images to ghcr.io (a push to main always does)
+        type: boolean
+        default: false
 
 jobs:
   native-x86_64:
@@ -41,3 +46,32 @@ jobs:
             echo "### docker run (minimal OCI image from mkimage.py)"; echo '```'; cat oci.txt; echo '```'
             echo "### pause variants"; echo '```'; cat pause.txt; echo '```'
             echo "### registry bytes, true-103"; echo '```'; cat sizes.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  publish-ghcr:
+    name: publish the minimal OCI images to ghcr.io
+    needs: native-x86_64
+    if: github.event_name == 'push' || inputs.publish == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    concurrency: publish-ghcr
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - name: Generate binaries
+        run: python3 mktrue.py
+      - name: Log in to ghcr.io
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          skopeo login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<<"$GITHUB_TOKEN"
+          docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<<"$GITHUB_TOKEN"
+      - name: Push every image, then pull each tag back and run it
+        run: ./publish.sh "ghcr.io/${GITHUB_REPOSITORY,,}" | tee publish.txt
+      - name: Summary
+        if: always()
+        run: |
+          { echo "### ghcr.io/${GITHUB_REPOSITORY,,} ($(uname -mr))"; echo '```'; cat publish.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

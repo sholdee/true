@@ -22,6 +22,33 @@ docstring in [`mktrue.py`](mktrue.py) for the field-by-field layouts.
 Each size also has a `-exit7` control (same layout, exits 7) so CI proves the
 exit status comes from the embedded code rather than from a loader shortcut.
 
+## Published images
+
+CI pushes the `mkimage.py` images to GHCR on every merge to `main`: skopeo
+copies the OCI layout as is, and the job pulls each tag back, runs it and
+checks that the registry's manifest digest equals the local build's. All
+images are `linux/amd64`. Re-running is a no-op at the registry: the build is
+deterministic for a given Python/zlib build (gzip bytes differ across
+platforms at equal sizes, so a laptop build has different digests).
+
+```sh
+docker run --rm ghcr.io/sholdee/true; echo $?      # 0; 103-byte binary, 702 registry bytes
+docker run -d ghcr.io/sholdee/true:pause           # blocks forever at zero CPU
+```
+
+| tag                  | binary              | notes |
+|----------------------|---------------------|-------|
+| `latest`, `103`      | `true-103`          | runs everywhere, including Docker Desktop on Apple Silicon |
+| `104`, `112`         | `true-104/112`      | |
+| `80`, `75`           | `true-80/75`        | native x86-64 hosts only |
+| `pause`, `pause-103` | `pause-103`         | `docker stop` waits out the grace period, exit 137 |
+| `pause-104`, `pause-112`, `pause-80`, `pause-75` | `pause-*` | same rule as the `true` sizes |
+| `pause-128-sigterm`  | `pause-128-sigterm` | `docker stop` returns at once, exit 0 |
+
+`./publish.sh REGISTRY/REPO` pushes the same set to any registry you are
+logged in to (skopeo and docker), so a fork publishes to its own namespace
+unchanged.
+
 ## pause: an image that never exits
 
 Changing the syscall number from 60 (`exit`) to 34 (`pause`) turns every
@@ -87,13 +114,15 @@ python3 mktrue.py                 # writes out/true-*
 ./test.sh oci                     # hand-builds minimal OCI images, loads and runs them
 ./test.sh pause                   # pause-*: alive after 3 s, state S, stop behaviour
 ./compare-sizes.sh true-103       # the table above, measured (creates a docker-container builder if needed)
+./publish.sh localhost:5000/true  # mkimage.py every variant, push with skopeo, pull back and run
 docker build --build-arg BIN=true-103 -t true .
 docker run --rm true; echo $?     # 0
 python3 mkimage.py out/true-103 true.oci.tar && docker load -i true.oci.tar   # -> true:min
 ```
 
 CI runs all four test modes and the size comparison on an x86-64
-`ubuntu-latest` runner on every push.
+`ubuntu-latest` runner on every push, and publishes to GHCR from `main`
+(or from a manual run with `publish` ticked).
 
 ## Caveats
 
